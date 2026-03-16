@@ -1,0 +1,125 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	/* Enable camera clock controller */
+	fragment@0 {
+		target = <&camcc>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	/* Configure CAMSS with csiphy1 port for CSI2 */
+	fragment@1 {
+		target = <&camss>;
+
+		__overlay__ {
+			status = "okay";
+			vdda-supply = <&vreg_l5b_0p752>;
+			vdda-phy-supply = <&vreg_l10c_0p88>;
+			vdda-pll-supply = <&vreg_l6b_1p2>;
+			operating-points-v2 = <&camss_opp_table>;
+
+			camss_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-200000000 {
+					opp-hz = /bits/ 64 <200000000>;
+					required-opps = <&rpmhpd_opp_low_svs>;
+				};
+
+				opp-600000000 {
+					opp-hz = /bits/ 64 <600000000>;
+					required-opps = <&rpmhpd_opp_nom>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@1 {
+					reg = <1>;
+
+					csiphy1_ep: endpoint {
+						clock-lanes = <7>;
+						data-lanes = <0 1>;
+						remote-endpoint = <&imx519_ep>;
+					};
+				};
+			};
+		};
+	};
+
+	/* DSI/CSI switch pin - set gpio68 high for CSI mode */
+	fragment@2 {
+		target = <&tlmm>;
+
+		__overlay__ {
+
+			dsi_csi_sw_display: dsi-csi-sw-display-state {
+				pins = "gpio68";
+				function = "gpio";
+				drive-strength = <2>;
+				output-high;
+				bias-disable;
+			};
+		};
+	};
+
+	/* Enable CCI0 controller */
+	fragment@3 {
+		target = <&cci0>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	/* Add imx519 camera + dw9807 VCM on CCI0 i2c bus 1 */
+	fragment@4 {
+		target = <&cci0_i2c1>;
+
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			vcm_csi2: vcm@0c {
+				compatible = "dongwoon,dw9807-vcm";
+				reg = <0x0c>;
+			};
+
+			imx519: camera@1a {
+				compatible = "sony,imx519";
+				reg = <0x1a>;
+				orientation = <2>;
+				rotation = <0>;
+				lens-focus = <&vcm_csi2>;
+				reset-gpios = <&tlmm 21 0x00>;
+				pinctrl-names = "default", "sleep";
+				pinctrl-0 = <&csi2_mclk_default &csi2_reset_default &csi2_power_en_default &dsi_csi_sw_display>;
+				pinctrl-1 = <&csi2_mclk_sleep &csi2_reset_sleep &csi2_power_en_sleep>;
+				clocks = <&camcc 94>;
+				assigned-clocks = <&camcc 94>;
+				assigned-clock-rates = <24000000>;
+				VANA-supply = <&cam_vana_2p8>;
+				VDIG-supply = <&cam_vdig_1p8>;
+				VDDL-supply = <&cam_vddl_1p2>;
+				status = "okay";
+
+				port {
+
+					imx519_ep: endpoint {
+						clock-lanes = <7>;
+						link-frequencies = /bits/ 64 <493500000>;
+						data-lanes = <0 1>;
+						remote-endpoint = <&csiphy1_ep>;
+					};
+				};
+			};
+		};
+	};
+};

@@ -1,0 +1,109 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	/* Enable camera clock controller */
+	fragment@0 {
+		target = <&camcc>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	/* Configure CAMSS with csiphy3 port for CSI1 */
+	fragment@1 {
+		target = <&camss>;
+
+		__overlay__ {
+			status = "okay";
+			vdda-supply = <&vreg_l5b_0p752>;
+			vdda-phy-supply = <&vreg_l10c_0p88>;
+			vdda-pll-supply = <&vreg_l6b_1p2>;
+			operating-points-v2 = <&camss_opp_table>;
+
+			camss_opp_table: opp-table {
+				compatible = "operating-points-v2";
+
+				opp-200000000 {
+					opp-hz = /bits/ 64 <200000000>;
+					required-opps = <&rpmhpd_opp_low_svs>;
+				};
+
+				opp-600000000 {
+					opp-hz = /bits/ 64 <600000000>;
+					required-opps = <&rpmhpd_opp_nom>;
+				};
+			};
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				port@3 {
+					reg = <3>;
+
+					csiphy3_ep: endpoint {
+						clock-lanes = <7>;
+						data-lanes = <0 1>;
+						remote-endpoint = <&imx519_ep>;
+					};
+				};
+			};
+		};
+	};
+
+	/* Enable CCI1 controller */
+	fragment@2 {
+		target = <&cci1>;
+
+		__overlay__ {
+			status = "okay";
+		};
+	};
+
+	/* Add imx519 camera + dw9807 VCM on CCI1 i2c bus 0 */
+	fragment@3 {
+		target = <&cci1_i2c0>;
+
+		__overlay__ {
+			status = "okay";
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			vcm_csi1: vcm@0c {
+				compatible = "dongwoon,dw9807-vcm";
+				reg = <0x0c>;
+			};
+
+			imx519: camera@1a {
+				compatible = "sony,imx519";
+				reg = <0x1a>;
+				orientation = <2>;
+				rotation = <0>;
+				lens-focus = <&vcm_csi1>;
+				reset-gpios = <&tlmm 141 0x00>;
+				pinctrl-names = "default", "sleep";
+				pinctrl-0 = <&csi1_mclk_default &csi1_reset_default &csi1_power_en_default>;
+				pinctrl-1 = <&csi1_mclk_sleep &csi1_reset_sleep &csi1_power_en_sleep>;
+				clocks = <&camcc 98>;
+				assigned-clocks = <&camcc 98>;
+				assigned-clock-rates = <24000000>;
+				VANA-supply = <&cam_vana_2p8>;
+				VDIG-supply = <&cam_vdig_1p8>;
+				VDDL-supply = <&cam_vddl_1p2>;
+				status = "okay";
+
+				port {
+
+					imx519_ep: endpoint {
+						clock-lanes = <7>;
+						link-frequencies = /bits/ 64 <493500000>;
+						data-lanes = <0 1>;
+						remote-endpoint = <&csiphy3_ep>;
+					};
+				};
+			};
+		};
+	};
+};

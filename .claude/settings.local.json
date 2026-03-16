@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dpkg -l)",
+      "Read(//boot/firmware/**)",
+      "Bash(find:*)",
+      "Read(//sys/firmware/devicetree/base/soc@0/cci@ac4b000/i2c-bus@1/**)",
+      "Read(//proc/device-tree/soc@0/cci@ac4b000/i2c-bus@1/camera@1a/**)",
+      "Read(//sys/bus/i2c/devices/**)",
+      "Read(//sys/devices/platform/soc@0/ac4b000.cci/i2c-16/16-001a/**)",
+      "Bash(dmesg:*)",
+      "Bash(systemctl list-units:*)",
+      "Read(//sys/firmware/devicetree/base/soc@0/cci@ac4b000/i2c-bus@0/camera@1a/**)",
+      "Read(//proc/device-tree/__symbols__/**)",
+      "Read(//sys/firmware/devicetree/base/__symbols__/**)",
+      "Bash(dtc:*)",
+      "Bash(cam:*)",
+      "Bash(v4l2-ctl:*)",
+      "WebFetch(domain:developer.particle.io)",
+      "Bash(ls:*)",
+      "Bash(chafa:*)",
+      "WebFetch(domain:git.kernel.org)",
+      "Bash(curl:*)",
+      "Bash(cd:*)",
+      "Bash(media-ctl:*)"
+    ]
+  }
+}

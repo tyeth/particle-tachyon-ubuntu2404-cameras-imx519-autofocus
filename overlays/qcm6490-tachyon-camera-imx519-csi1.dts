@@ -72,7 +72,7 @@
 			#size-cells = <0>;
 
 			vcm_csi1: vcm@0c {
-				compatible = "dongwoon,dw9807-vcm";
+				compatible = "asahi-kasei,ak7375";
 				reg = <0x0c>;
 			};
 

@@ -1,6 +1,116 @@
 # Camera Overlay Changelog
 
-## 2026-03-16 (v3): Patch dw9807-vcm kernel module for Qualcomm CCI bus
+## 2026-03-16 (v4): Switch VCM driver from dw9807 to ak7375
+
+### Problem
+
+The Arducam IMX519 B0371 autofocus cameras use an **AK7375** voice coil motor
+(Asahi Kasei), not a DW9807 (Dongwoon). Both sit at I2C address 0x0c, so the
+dw9807 driver bound successfully and I2C writes completed without error — but the
+register protocol is completely different:
+
+| | DW9807 | AK7375 |
+|---|---|---|
+| Position register | 0x03 (MSB) + 0x04 (LSB) | 0x00 (16-bit, val << 4) |
+| Control register | 0x02, active=0x00, standby=0x01 | 0x02, active=0x00, standby=0x40 |
+| DAC resolution | 10-bit (0–1023) | 12-bit (0–4095) |
+
+The dw9807 DAC writes landed in the wrong registers with the wrong encoding, so
+the lens motor barely moved. Focus sweep measurements (Laplacian variance on the
+mug region) showed flat sharpness across all 1023 positions — confirmed by testing
+a mug at 15cm and 25–30cm (well within the IMX519's 10cm minimum focus distance).
+
+Source: [ArduCAM/IMX519_AK7375](https://github.com/ArduCAM/IMX519_AK7375) — the
+official Arducam repo explicitly pairs the IMX519 with an ak7375 VCM driver.
+
+### Fix
+
+1. **New patched `ak7375.ko` module** built from the Arducam ak7375.c source, with
+   the same CCI bus resilience patches applied in v3:
+   - `ak7375_open()`: returns 0 (skip pm_runtime)
+   - `ak7375_vcm_suspend/resume()`: tolerate I2C errors
+   - `ak7375_probe()`: skip pm_runtime_idle
+   - `ak7375_set_ctrl()`: lazy power-on (write REG_CONT=0x00 on first use)
+
+2. **Updated both DT overlays**: `compatible` changed from `"dongwoon,dw9807-vcm"`
+   to `"asahi-kasei,ak7375"` in both CSI1 and CSI2 overlay DTS files.
+
+3. **Updated `/etc/modules-load.d/camera-vcm.conf`**: loads `ak7375` instead of
+   `dw9807-vcm`.
+
+The dw9807 patched module and source are retained for reference but are no longer
+active.
+
+### Files
+
+| File | Description |
+|------|-------------|
+| `ak7375.c` | Patched ak7375 kernel module source |
+| `ak7375-Makefile` | Out-of-tree build Makefile |
+| `ak7375.ko.zst.ORIGINAL` | Stock kernel ak7375 module (for rollback) |
+| `dw9807-vcm.c` | Previous patched dw9807 module (superseded) |
+| `dw9807-vcm.ko.zst.ORIGINAL` | Stock kernel dw9807 module |
+
+### Installation Locations
+
+- `/lib/modules/6.8.0-1058-particle/kernel/drivers/media/i2c/ak7375.ko`
+- `/mnt/userdata/boot/qcm6490-tachyon-camera-imx519-csi{1,2}.dtbo`
+- `/boot/overlays/qcm6490-tachyon-camera-imx519-csi{1,2}.dtbo`
+- `/etc/modules-load.d/camera-vcm.conf` → `ak7375`
+
+### Rebuilding
+
+```bash
+cd /root/dev-projs/cameras/overlays
+cp ak7375-Makefile Makefile
+make
+sudo cp ak7375.ko /lib/modules/$(uname -r)/kernel/drivers/media/i2c/
+sudo depmod
+# Also recompile overlays if DTS changed:
+dtc -@ -I dts -O dtb -o qcm6490-tachyon-camera-imx519-csi1.dtbo qcm6490-tachyon-camera-imx519-csi1.dts
+dtc -@ -I dts -O dtb -o qcm6490-tachyon-camera-imx519-csi2.dtbo qcm6490-tachyon-camera-imx519-csi2.dts
+sudo mount /dev/sda10 /mnt/userdata
+sudo cp qcm6490-tachyon-camera-imx519-csi*.dtbo /mnt/userdata/boot/
+sudo cp qcm6490-tachyon-camera-imx519-csi*.dtbo /boot/overlays/
+```
+
+### Rollback to v3 (dw9807)
+
+```bash
+MODPATH="/lib/modules/$(uname -r)/kernel/drivers/media/i2c"
+# Restore stock ak7375
+sudo cp /root/dev-projs/cameras/overlays/ak7375.ko.zst.ORIGINAL "$MODPATH/ak7375.ko.zst"
+sudo rm -f "$MODPATH/ak7375.ko"
+# dw9807 patched module is still installed from v3
+echo "dw9807-vcm" | sudo tee /etc/modules-load.d/camera-vcm.conf
+# Revert overlays to dw9807-vcm compatible (would need to edit DTS and recompile)
+sudo depmod && sudo reboot
+```
+
+### Usage
+
+Focus range is now **0–4095** (4x resolution vs dw9807's 0–1023). Must still be
+set during an active stream:
+```bash
+v4l2-ctl -d /dev/v4l-subdev30 --set-ctrl focus_absolute=2000  # CSI1
+v4l2-ctl -d /dev/v4l-subdev28 --set-ctrl focus_absolute=2000  # CSI2
+```
+
+### Note on kernel upgrades
+
+Both `ak7375.ko` and `dw9807-vcm.ko` are patched for `6.8.0-1058-particle`.
+After a kernel upgrade, rebuild both from the sources in this directory.
+
+### IMX519 Arducam B0371 optical specs (for reference)
+
+- **Minimum focus distance**: 10cm (official), ~6cm (tested)
+- **Sensor**: Sony IMX519, 1/2.53", 4656x3496, 1.22um pixels
+- **FoV**: 66°(H) x 49.5°(V)
+- **VCM**: AK7375 (Asahi Kasei), I2C address 0x0c, 12-bit DAC
+
+---
+
+## 2026-03-16 (v3): Patch dw9807-vcm kernel module for Qualcomm CCI bus (superseded by v4)
 
 ### Problem
 
@@ -136,24 +246,21 @@ above against the new kernel headers to re-apply the patch.
 
 ---
 
-## 2026-03-16 (v2): Add dw9807 VCM autofocus support to both overlays
+## 2026-03-16 (v2): Add VCM autofocus DT nodes to both overlays (superseded by v4)
 
 ### Problem
 
-The Arducam IMX519 autofocus cameras have a dw9807 voice coil motor (VCM) at I2C
-address 0x0c on the same CCI bus as the sensor. The firmware overlays had no VCM
-device tree node, so autofocus was non-functional — no `V4L2_CID_FOCUS_ABSOLUTE`
-control was exposed, and the VCM driver couldn't probe because the Qualcomm CCI
-bus only powers on during camera subsystem initialization (chicken-and-egg: driver
-needs I2C access, but CCI only active when camera pipeline is up).
+The firmware overlays had no VCM device tree node, so autofocus was non-functional.
 
 ### Fix
 
 Added to both CSI1 and CSI2 overlays:
-- `vcm@0c` node with `compatible = "dongwoon,dw9807-vcm"` on the same I2C bus
-  as the camera sensor
+- `vcm@0c` node on the same I2C bus as the camera sensor
 - `lens-focus = <&vcm_csiN>` phandle on the camera node linking sensor to VCM
-- `/etc/modules-load.d/camera-vcm.conf` to autoload `dw9807-vcm` module at boot
+- `/etc/modules-load.d/camera-vcm.conf` to autoload VCM module at boot
+
+> **Note:** v2 originally used `compatible = "dongwoon,dw9807-vcm"`. v4 corrected
+> this to `"asahi-kasei,ak7375"` after discovering the actual VCM chip.
 
 Also created a proper CSI1 overlay DTS source (firmware only shipped compiled dtbo).
 
